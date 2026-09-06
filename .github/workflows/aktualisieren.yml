@@ -2,7 +2,9 @@ name: Raumbelegung aktualisieren
 
 on:
   schedule:
-    # 04:30 UTC = 06:30 Sommerzeit / 05:30 Winterzeit in Deutschland
+    # Alle 15 Minuten zwischen 05:00 und 18:59 UTC.
+    # Das entspricht 07:00-20:59 deutscher Sommerzeit, 06:00-19:59 im Winter.
+    - cron: "*/15 5-18 * * *"
     - cron: "30 4 * * *"
   workflow_dispatch:
 
@@ -10,6 +12,11 @@ permissions:
   contents: read
   pages: write
   id-token: write
+
+# Der Bau-Rechner läuft auf Weltzeit – ohne das stünde im Kopf der Seite
+# eine um ein bis zwei Stunden zu frühe Uhrzeit.
+env:
+  TZ: Europe/Berlin
 
 concurrency:
   group: pages
@@ -20,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Quellcode holen
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Ruby bereitstellen
         uses: ruby/setup-ruby@v1
@@ -48,4 +55,4 @@ jobs:
     steps:
       - name: Auf GitHub Pages stellen
         id: veroeffentlichung
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
