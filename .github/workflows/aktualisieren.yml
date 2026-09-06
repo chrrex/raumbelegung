@@ -7,7 +7,7 @@ on:
     - cron: "*/15 5-18 * * *"
     - cron: "30 4 * * *"
   workflow_dispatch:
-    push:
+  push:
     branches: [main]
 
 permissions:
