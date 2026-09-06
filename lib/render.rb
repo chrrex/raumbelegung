@@ -9,6 +9,7 @@ require "json"
 # Rendert die Wochenübersicht als eigenständige HTML-Datei.
 module Render
   TAGE   = %w[Mo Di Mi Do Fr Sa So].freeze
+  TAGE_LANG = %w[Montag Dienstag Mittwoch Donnerstag Freitag Samstag Sonntag].freeze
   MONATE = %w[Januar Februar März April Mai Juni Juli August September Oktober November Dezember].freeze
 
   STATUS = {
@@ -84,6 +85,69 @@ module Render
       raeume_belegt: zeilen.sum { |z| z[:rooms].count { |r| r[:belegt] > 0 } }
     }
   end
+
+
+# --- Tagesblatt ----------------------------------------------------------
+# Eine Seite je Tag, nach Uhrzeit sortiert statt nach Raum. Gedacht zum
+# Aushängen an Rezeption und Küche.
+
+def tagesblaetter(w, heute)
+  w[:tage].each_with_index.map { |tag, i| tagesblatt(w, tag, i, heute) }.join
+end
+
+def tagesblatt(w, tag, idx, heute)
+  eintraege = []
+  w[:zeilen].each do |g|
+    g[:rooms].each do |r|
+      r[:zellen][idx].each { |ev| eintraege << [r[:space], ev] }
+    end
+  end
+  eintraege.sort_by! { |space, ev| [ev[:start_time] || -1, space[:name].to_s] }
+
+  out = +%(<section class="tagesblatt#{tag == heute ? ' ist-heute' : ''}" data-tag="#{tag}">)
+  out << %(<header class="tb-kopf"><h3>#{TAGE_LANG[tag.cwday - 1]}, #{tag.day}. #{MONATE[tag.month - 1]} #{tag.year}</h3>)
+  out << %(<p>KW #{w[:kw]} · #{eintraege.size} #{eintraege.size == 1 ? 'Belegung' : 'Belegungen'}</p></header>)
+
+  if eintraege.empty?
+    out << %(<p class="tb-leer">Für diesen Tag ist nichts eingetragen.</p></section>)
+    return out
+  end
+
+  out << %(<table class="tb-tabelle"><thead><tr>)
+  out << %(<th scope="col" class="tb-sp-zeit">Zeit</th>)
+  out << %(<th scope="col" class="tb-sp-raum">Raum</th>)
+  out << %(<th scope="col">Buchung</th>)
+  out << %(<th scope="col">Veranstaltung</th>)
+  out << %(<th scope="col" class="tb-sp-status">Status</th>)
+  out << %(</tr></thead><tbody>)
+
+  eintraege.each do |space, ev|
+    st = STATUS[ev[:status]] || STATUS["lead"]
+    beginnt = Date.parse(ev[:start_date]) == tag
+    endet   = Date.parse(ev[:end_date]) == tag
+
+    zeitfeld =
+      if !beginnt && !endet then "ganztägig<span class=\"tb-mehrtaegig\">läuft weiter</span>"
+      elsif !beginnt then "bis #{zeit(ev[:end_time]) || 'Ende'}<span class=\"tb-mehrtaegig\">seit #{Date.parse(ev[:start_date]).strftime('%d.%m.')}</span>"
+      elsif ev[:all_day] || ev[:start_time].nil? then "ganztägig"
+      elsif !endet then "ab #{zeit(ev[:start_time])}<span class=\"tb-mehrtaegig\">bis #{Date.parse(ev[:end_date]).strftime('%d.%m.')}</span>"
+      else "#{zeit(ev[:start_time])}–#{zeit(ev[:end_time])}"
+      end
+
+    out << %(<tr class="room-row tb-zeile #{st[:css]}" data-room="#{h(space[:id])}" data-belegt="1">)
+    out << %(<td class="tb-zeit">#{zeitfeld}</td>)
+    out << %(<td class="tb-raum">#{h(space[:name])}</td>)
+    out << %(<td class="tb-buchung">#{h(ev[:booking_name].to_s.empty? ? 'Ohne Namen' : ev[:booking_name])}</td>)
+    out << %(<td class="tb-name">#{h(ev[:name])})
+    out << %(<span class="tb-typ">#{h(ev[:event_type])}</span>) if ev[:event_type].to_s.strip != ""
+    out << %(</td>)
+    out << %(<td class="tb-status"><span class="tb-punkt"></span>#{h(st[:label])}</td>)
+    out << "</tr>"
+  end
+
+  out << "</tbody></table></section>"
+  out
+end
 
   # --- Bausteine -----------------------------------------------------------
 
@@ -219,8 +283,14 @@ module Render
     panels = wochen.each_with_index.map do |w, i|
       %(<section class="woche" id="woche-#{i}" role="tabpanel" aria-labelledby="tab-#{i}"#{i == aktiv ? '' : ' hidden'}>) +
         %(<div class="woche-head"><h2>KW #{w[:kw]}</h2>) +
-        %(<p>#{h(zeitraum(w[:start], w[:ende]))} · <strong>#{w[:raeume_belegt]} von #{w[:raeume]} Räumen belegt</strong> · #{w[:anzahl]} Belegungen</p></div>) +
-        woche_tabelle(w, heute) + "</section>"
+        %(<p>#{h(zeitraum(w[:start], w[:ende]))} · <strong>#{w[:raeume_belegt]} von #{w[:raeume]} Räumen belegt</strong> · #{w[:anzahl]} Belegungen</p>) +
+        %(<div class="ansicht-wahl" role="group" aria-label="Darstellung wählen">) +
+        %(<button type="button" class="btn ansicht is-active" data-ansicht="raster" aria-pressed="true">Wochenraster</button>) +
+        %(<button type="button" class="btn ansicht" data-ansicht="tag" aria-pressed="false">Tagesblätter</button>) +
+        %(</div></div>) +
+        %(<div class="ansicht-raster">) + woche_tabelle(w, heute) + %(</div>) +
+        %(<div class="ansicht-tag" hidden>) + tagesblaetter(w, heute) + %(</div>) +
+        "</section>"
     end.join
 
     kopf = <<~HTML
@@ -290,7 +360,13 @@ module Render
       <label class="check"><input type="radio" name="zeit" value="alle"><span>Alle <b id="druck-n-wochen"></b> Wochen, je eine Seite</span></label>
     </fieldset>
 
-    <p class="druck-hinweis">Es öffnet sich der Druckdialog des Browsers. Dort „Als PDF sichern“ wählen – das Layout ist auf A4 quer eingestellt. Damit die Farben mitkommen, im Druckdialog „Hintergrundgrafiken“ aktivieren.</p>
+    <fieldset>
+      <legend>Welche Darstellung?</legend>
+      <label class="check"><input type="radio" name="form" value="raster" checked><span>Wochenraster – Räume als Zeilen, ein Blatt quer</span></label>
+      <label class="check"><input type="radio" name="form" value="tag"><span>Tagesblätter – je Tag eine Seite hochkant, nach Uhrzeit sortiert</span></label>
+    </fieldset>
+
+    <p class="druck-hinweis">Es öffnet sich der Druckdialog des Browsers. Dort „Als PDF sichern“ wählen – das Wochenraster ist auf A4 quer eingestellt, Tagesblätter auf hochkant. Damit die Farben mitkommen, im Druckdialog „Hintergrundgrafiken“ aktivieren.</p>
 
     <menu>
       <button type="submit" value="abbruch" class="btn">Abbrechen</button>
@@ -739,6 +815,54 @@ end
       /* --- Kopfzeile, die nur auf Papier erscheint --- */
       .print-head { display: none; }
 
+      /* --- Tagesblatt --- */
+      .ansicht-wahl { margin-left: auto; display: flex; gap: 0; }
+      .btn.ansicht { border-radius: 0; }
+      .btn.ansicht:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+      .btn.ansicht:last-child { border-radius: 0 var(--radius) var(--radius) 0; margin-left: -1px; }
+      .btn.ansicht.is-active {
+        background: var(--gruen-tint); border-color: var(--gruen);
+        color: var(--gruen-tief); font-weight: 600; position: relative; z-index: 1;
+      }
+
+      .ansicht-tag { display: flex; flex-direction: column; gap: 18px; }
+      .tagesblatt {
+        border: 1px solid var(--line); border-radius: var(--radius);
+        background: var(--surface); padding: 16px 18px 6px;
+      }
+      .tagesblatt.ist-heute { border-color: var(--heute); }
+      .tb-kopf { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding-bottom: 10px; }
+      .tb-kopf h3 { margin: 0; font-size: 17px; font-weight: 600; }
+      .tb-kopf p { margin: 0; font-size: 12.5px; color: var(--ink-muted); }
+      .tagesblatt.ist-heute .tb-kopf h3 { color: var(--heute); }
+      .tb-leer { margin: 0 0 12px; font-size: 13px; color: var(--ink-muted); font-style: italic; }
+
+      .tb-tabelle { width: 100%; border-collapse: collapse; }
+      .tb-tabelle thead th {
+        text-align: left; font-size: 10.5px; font-weight: 700;
+        letter-spacing: .12em; text-transform: uppercase; color: var(--ink-muted);
+        padding: 0 8px 5px 0; border-bottom: 1px solid var(--line);
+      }
+      .tb-tabelle td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+      .tb-tabelle tr:last-child td { border-bottom: 0; }
+      .tb-sp-zeit { width: 108px; }
+      .tb-sp-raum { width: 22%; }
+      .tb-sp-status { width: 92px; }
+      .tb-zeit { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 13px; white-space: nowrap; }
+      .tb-mehrtaegig { display: block; font-weight: 400; font-size: 10.5px; color: var(--ink-muted); font-style: italic; }
+      .tb-raum { font-weight: 600; }
+      .tb-buchung { font-weight: 600; }
+      .tb-name { color: var(--ink-soft); }
+      .tb-typ { display: block; font-size: 11px; color: var(--ink-muted); }
+      .tb-status { font-size: 11.5px; color: var(--ink-muted); white-space: nowrap; }
+      .tb-punkt {
+        display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+        margin-right: 6px; vertical-align: baseline; background: var(--grau);
+      }
+      .tb-zeile.is-definite .tb-punkt { background: var(--gruen); }
+      .tb-zeile.is-tentative .tb-punkt { background: var(--gold); }
+      .tb-zeile.is-lead .tb-punkt { background: transparent; box-shadow: inset 0 0 0 1.5px var(--grau); }
+
       /* --- Woche --- */
       main { max-width: 1440px; margin: 0 auto; padding: 0 28px 8px; }
       .woche-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; padding: 22px 0 14px; }
@@ -865,6 +989,40 @@ end
         .print-legend { display: flex; gap: 9pt; flex-wrap: wrap; justify-content: flex-end; padding-right: 2mm; }
         .print-legend .key { font-size: 7pt; color: #55584C; gap: 4pt; }
         .print-legend .swatch { width: 9pt; height: 9pt; }
+
+        /* Wochenraster oder Tagesblätter – nur was d-print trägt, wird gedruckt */
+        .ansicht-wahl { display: none !important; }
+        .ansicht-raster:not(.d-print), .ansicht-tag:not(.d-print) { display: none !important; }
+        .ansicht-raster.d-print { display: block !important; }
+        .ansicht-tag.d-print { display: block !important; }
+
+        @page tagesblatt { size: A4 portrait; margin: 14mm 12mm; }
+
+        /* Im Tagesblatt-Modus gehört auch der Kopf aufs Hochformat, sonst bliebe
+           die erste Seite quer und leer. Die Wochenzeile entfällt – jedes Blatt
+           trägt sein eigenes Datum. */
+        :root[data-druckform="tag"] .print-head { page: tagesblatt; }
+        :root[data-druckform="tag"] .woche-head { display: none !important; }
+        :root[data-druckform="tag"] .print-legend { padding-right: 0; }
+        .ansicht-tag.d-print .tagesblatt {
+          page: tagesblatt;
+          border: 0; padding: 0; break-after: page; page-break-after: always;
+        }
+        .ansicht-tag.d-print .tagesblatt:last-child { break-after: auto; page-break-after: auto; }
+        .ansicht-tag.d-print .tb-kopf {
+          padding-bottom: 8pt; margin-bottom: 6pt; border-bottom: .8pt solid #6B7A3E;
+        }
+        .ansicht-tag.d-print .tb-kopf h3 { font-size: 15pt; color: #23281C; }
+        .ansicht-tag.d-print .tb-kopf p { font-size: 9pt; }
+        .ansicht-tag.d-print .tb-tabelle thead th { font-size: 7pt; padding-bottom: 4pt; }
+        .ansicht-tag.d-print .tb-tabelle td { padding: 5pt 6pt 5pt 0; font-size: 9.5pt; }
+        .ansicht-tag.d-print .tb-zeit { font-size: 10pt; }
+        .ansicht-tag.d-print .tb-typ { font-size: 8pt; }
+        .ansicht-tag.d-print .tb-status { font-size: 8.5pt; }
+        .ansicht-tag.d-print .tb-punkt { width: 7pt; height: 7pt; }
+        .ansicht-tag.d-print .tb-zeile.is-definite  .tb-punkt { background: #6B7A3E !important; }
+        .ansicht-tag.d-print .tb-zeile.is-tentative .tb-punkt { background: #A87F2E !important; }
+        .ansicht-tag.d-print .tb-zeile.is-lead .tb-punkt { background: #fff !important; box-shadow: inset 0 0 0 1pt #7E8471; }
 
         main { padding: 0; max-width: none; }
         .woche-head { padding: 5pt 0 3pt; gap: 8pt; }
@@ -1043,6 +1201,22 @@ end
         laden();
         anwenden();
 
+        /* --- Wochenraster oder Tagesblätter --- */
+        Array.prototype.forEach.call(document.querySelectorAll('.ansicht'), function (b) {
+          b.addEventListener('click', function () {
+            var sektion = b.closest('.woche');
+            if (!sektion) return;
+            var wahl = b.getAttribute('data-ansicht');
+            Array.prototype.forEach.call(sektion.querySelectorAll('.ansicht'), function (x) {
+              var an = x.getAttribute('data-ansicht') === wahl;
+              x.classList.toggle('is-active', an);
+              x.setAttribute('aria-pressed', String(an));
+            });
+            sektion.querySelector('.ansicht-raster').hidden = wahl !== 'raster';
+            sektion.querySelector('.ansicht-tag').hidden = wahl !== 'tag';
+          });
+        });
+
         /* --- Daten aktualisieren ---
            Die Seite kann Event Temple nicht selbst abfragen – der Schlüssel
            gehört nicht in den Browser. Sie sieht stattdessen nach, ob der
@@ -1098,18 +1272,29 @@ end
         }
 
         function aufraeumen() {
+          document.documentElement.removeAttribute('data-druckform');
           Array.prototype.forEach.call(document.querySelectorAll('.d-print'), function (el) {
             el.classList.remove('d-print');
           });
         }
 
-        function vorbereiten(umfang, zeit) {
+        function vorbereiten(umfang, zeit, darstellung) {
           aufraeumen();
+          document.documentElement.setAttribute('data-druckform', darstellung === 'tag' ? 'tag' : 'raster');
           var aktiv = aktiveWoche();
 
           sektionen.forEach(function (sec) {
             if (zeit !== 'alle' && sec !== aktiv) return;
             sec.classList.add('d-print');
+
+            var ziel = sec.querySelector(darstellung === 'tag' ? '.ansicht-tag' : '.ansicht-raster');
+            if (ziel) ziel.classList.add('d-print');
+
+            // Tagesblatt-Zeilen tragen dieselbe Raumkennung wie das Raster, sitzen
+            // aber nicht in einer Gruppe – sie werden hier eigens markiert.
+            Array.prototype.forEach.call(sec.querySelectorAll('.ansicht-tag tr.room-row'), function (tr) {
+              if (umfang !== 'gefiltert' || !tr.hidden) tr.classList.add('d-print');
+            });
 
             Array.prototype.forEach.call(sec.querySelectorAll('tbody.group'), function (tb) {
               var offen = 0;
@@ -1130,23 +1315,24 @@ end
           });
         }
 
-        function umfangText(umfang, zeit, aktiv) {
+        function umfangText(umfang, zeit, aktiv, darstellung) {
           var raeume = umfang === 'alle' ? 'alle Räume'
                      : umfang === 'belegt' ? 'nur belegte Räume'
                      : 'gefilterte Raumauswahl';
           var zeitraum = zeit === 'alle'
             ? sektionen.length + ' Wochen'
             : (aktiv ? aktiv.querySelector('.woche-head h2').textContent : '');
-          return raeume + ' · ' + zeitraum;
+          var art = darstellung === 'tag' ? 'Tagesblätter' : 'Wochenraster';
+          return art + ' · ' + raeume + ' · ' + zeitraum;
         }
 
         var druckLief = false;
         window.addEventListener('beforeprint', function () { druckLief = true; });
 
-        function druckStarten(umfang, zeit) {
-          vorbereiten(umfang, zeit);
+        function druckStarten(umfang, zeit, darstellung) {
+          vorbereiten(umfang, zeit, darstellung);
           var feld = document.getElementById('print-umfang');
-          if (feld) feld.textContent = umfangText(umfang, zeit, aktiveWoche());
+          if (feld) feld.textContent = umfangText(umfang, zeit, aktiveWoche(), darstellung);
           druckLief = false;
           try {
             window.print();
@@ -1169,13 +1355,14 @@ end
           var wahl = teile[1].split(',');
           var umfang = wahl[0] || 'alle';
           var zeit = wahl[1] || 'alle';
+          var darstellung = wahl[2] || 'raster';
           if (zeit === 'alle') {
             sektionen.forEach(function (sec) { sec.hidden = false; });
           }
-          vorbereiten(umfang, zeit);
+          vorbereiten(umfang, zeit, darstellung);
           var feld = document.getElementById('print-umfang');
-          if (feld) feld.textContent = umfangText(umfang, zeit, aktiveWoche());
-          document.documentElement.setAttribute('data-druckmodus', umfang + ',' + zeit);
+          if (feld) feld.textContent = umfangText(umfang, zeit, aktiveWoche(), darstellung);
+          document.documentElement.setAttribute('data-druckmodus', umfang + ',' + zeit + ',' + darstellung);
         })();
 
         if (dialog && druckKnopf) {
@@ -1190,7 +1377,7 @@ end
             if (typeof dialog.showModal === 'function') {
               dialog.showModal();
             } else {
-              vorbereiten('gefiltert', 'woche');
+              vorbereiten('gefiltert', 'woche', 'raster');
               window.print();
             }
           });
@@ -1199,7 +1386,7 @@ end
             if (dialog.returnValue !== 'drucken') return;
             var form = document.getElementById('druck-form');
             window.setTimeout(function () {
-              druckStarten(form.elements.umfang.value, form.elements.zeit.value);
+              druckStarten(form.elements.umfang.value, form.elements.zeit.value, form.elements.darstellung.value);
             }, 60);
           });
 
