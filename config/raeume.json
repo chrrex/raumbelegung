@@ -1,0 +1,33 @@
+{
+  "_hinweis": "Reihenfolge und Gruppierung der Räume. Ein Raum landet in der ERSTEN Gruppe, deren Muster (Teilstring, Groß-/Kleinschreibung egal) im Raumnamen vorkommt. Die Reihenfolge der Gruppen entscheidet also mit.",
+
+  "gruppen": [
+    { "name": "Seminarräume",
+      "muster": ["seminarraum"] },
+
+    { "name": "Schloss – Veranstaltung",
+      "muster": ["schloss-saal", "foyer nordische halle"] },
+
+    { "name": "Schloss – Gastronomie & Empfang",
+      "muster": ["schloss restaurant", "lobby schloss"] },
+
+    { "name": "Seehaus",
+      "muster": ["seehaus", "kaminzimmer", "parkzimmer", "see-zimmer", "wintergarten"] },
+
+    { "name": "Lindenhaus",
+      "muster": ["lindenhaus"] },
+
+    { "name": "Gutshof & Werkstätten",
+      "muster": ["gutshof", "rinderstall", "atelier", "schneiderei", "tischlerei",
+                 "brotbackhaus", "musikscheune", "kutscherhaus", "denkfabrik", "kantine"] },
+
+    { "name": "Park & Außenflächen",
+      "muster": ["schloss terrasse", "vorplatz", "schlosspark", "schlossgarten",
+                 "schloss-park", "schloss gelände", "teehaus", "seepavillon",
+                 "kapelle", "kirche", "obstwiese", "kaiserbrunnen", "wiese"] }
+  ],
+
+  "ausblenden": ["hotelzimmer", "parkplatz"],
+
+  "status_anzeigen": ["definite", "tentative", "lead"]
+}
