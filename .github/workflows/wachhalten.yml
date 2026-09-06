@@ -1,0 +1,33 @@
+name: Zeitplan wachhalten
+
+# GitHub schaltet geplante Abläufe in öffentlichen Repositories ab, wenn
+# 60 Tage lang kein neuer Commit passiert ist. Laufende Actions zählen
+# nicht mit – nur echte Änderungen am Repository.
+
+on:
+  schedule:
+    - cron: "17 3 1,15 * *"   # am 1. und 15. jedes Monats, 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  wachhalten:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Quellcode holen
+        uses: actions/checkout@v5
+
+      - name: Lebenszeichen ablegen
+        run: |
+          date -u +"Zuletzt wachgehalten: %Y-%m-%d %H:%M UTC" > wachhalten.txt
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add wachhalten.txt
+          if git diff --staged --quiet; then
+            echo "Nichts zu tun – Datei unverändert."
+          else
+            git commit -m "Zeitplan wachhalten"
+            git push
+          fi
