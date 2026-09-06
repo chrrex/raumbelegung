@@ -1,0 +1,51 @@
+name: Raumbelegung aktualisieren
+
+on:
+  schedule:
+    # 04:30 UTC = 06:30 Sommerzeit / 05:30 Winterzeit in Deutschland
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  bauen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Quellcode holen
+        uses: actions/checkout@v4
+
+      - name: Ruby bereitstellen
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Übersicht bauen
+        env:
+          ET_API_KEY:      ${{ secrets.ET_API_KEY }}
+          ET_API_ORG:      ${{ secrets.ET_API_ORG }}
+          SEITEN_PASSWORT: ${{ secrets.SEITEN_PASSWORT }}
+        run: ruby build.rb --wochen=10
+
+      - name: Ergebnis einpacken
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+  veroeffentlichen:
+    needs: bauen
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.veroeffentlichung.outputs.page_url }}
+    steps:
+      - name: Auf GitHub Pages stellen
+        id: veroeffentlichung
+        uses: actions/deploy-pages@v4
