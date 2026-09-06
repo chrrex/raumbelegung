@@ -225,6 +225,7 @@ module Render
 
     kopf = <<~HTML
       <meta charset="utf-8">
+      <meta name="sgl-stand" content="#{generated_at.strftime(%q(%Y-%m-%dT%H:%M:%S%z))}">
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <title>Raumbelegung Liebenberg</title>
       <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -248,7 +249,7 @@ module Render
             <dt>Quelle</dt><dd>#{h(quelle)}</dd>
 <div class="mast-actions">
   <button type="button" class="btn-reload" id="drucken">Drucken / PDF</button>
-  <button type="button" class="btn-reload" id="reload">Seite neu laden</button>
+  <button type="button" class="btn-reload" id="reload">Daten aktualisieren</button>
 </div>
           </dl>
         </div>
@@ -1042,9 +1043,50 @@ end
         laden();
         anwenden();
 
-        /* --- Neu laden --- */
+        /* --- Daten aktualisieren ---
+           Die Seite kann Event Temple nicht selbst abfragen – der Schlüssel
+           gehört nicht in den Browser. Sie sieht stattdessen nach, ob der
+           Bau-Job inzwischen einen neueren Stand veröffentlicht hat. */
         var reload = document.getElementById('reload');
-        if (reload) reload.addEventListener('click', function () { window.location.reload(); });
+
+        function eigenerStand() {
+          var m = document.querySelector('meta[name="sgl-stand"]');
+          return m ? m.getAttribute('content') : null;
+        }
+
+        function melde(text, dauer) {
+          if (!reload) return;
+          reload.textContent = text;
+          window.setTimeout(function () { reload.textContent = 'Daten aktualisieren'; }, dauer || 4000);
+        }
+
+        if (reload) {
+          reload.addEventListener('click', function () {
+            reload.disabled = true;
+            reload.textContent = 'Wird geprüft …';
+
+            window.fetch(window.location.pathname + '?frisch=' + Date.now(), { cache: 'no-store' })
+              .then(function (antwort) {
+                if (!antwort.ok) throw new Error('nicht erreichbar');
+                return antwort.text();
+              })
+              .then(function (text) {
+                var treffer = text.match(/name="sgl-stand" content="([^"]+)"/);
+                var neuerStand = treffer ? treffer[1] : null;
+                if (neuerStand && neuerStand !== eigenerStand()) {
+                  reload.textContent = 'Neuer Stand – wird geladen …';
+                  window.location.reload();
+                  return;
+                }
+                reload.disabled = false;
+                melde('Stand ist aktuell');
+              })
+              .catch(function () {
+                reload.disabled = false;
+                melde('Nicht erreichbar');
+              });
+          });
+        }
 
         /* --- Drucken / als PDF sichern --- */
         var dialog     = document.getElementById('druck-dialog');
