@@ -362,8 +362,8 @@ end
 
     <fieldset>
       <legend>Welche Darstellung?</legend>
-      <label class="check"><input type="radio" name="form" value="raster" checked><span>Wochenraster – Räume als Zeilen, ein Blatt quer</span></label>
-      <label class="check"><input type="radio" name="form" value="tag"><span>Tagesblätter – je Tag eine Seite hochkant, nach Uhrzeit sortiert</span></label>
+      <label class="check"><input type="radio" name="darstellung" value="raster" checked><span>Wochenraster – Räume als Zeilen, ein Blatt quer</span></label>
+      <label class="check"><input type="radio" name="darstellung" value="tag"><span>Tagesblätter – je Tag eine Seite hochkant, nach Uhrzeit sortiert</span></label>
     </fieldset>
 
     <p class="druck-hinweis">Es öffnet sich der Druckdialog des Browsers. Dort „Als PDF sichern“ wählen – das Wochenraster ist auf A4 quer eingestellt, Tagesblätter auf hochkant. Damit die Farben mitkommen, im Druckdialog „Hintergrundgrafiken“ aktivieren.</p>
